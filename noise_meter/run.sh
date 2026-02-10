@@ -125,13 +125,23 @@ presence="0"
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
 
+echo "arecord -l"
+arecord -l
+echo "amixer -c 2"
+amixer -c 2
+echo "amixer -c 2 scontrols"
+amixer -c 2 scontrols
+echo "alsamixer -c 2"
+alsamixer -c 2
+
+
+
 # ===== Main loop =====
 while true; do
   db=$(measure_db || true)
   db="${db//$'\n'/}"
 
   if ! awk -v x="$db" 'BEGIN{exit !(x ~ /^-?[0-9]+(\.[0-9]+)?$/)}'; then
-    sleep "$SAMPLE_PERIOD"
     continue
   fi
 
@@ -154,6 +164,4 @@ while true; do
   pub "$MQTT_PREFIX/avg_db" "$avg"
   pub "$MQTT_PREFIX/max_db" "$max"
   pub "$MQTT_PREFIX/presence" "$presence"
-
-  sleep "$SAMPLE_PERIOD"
 done
