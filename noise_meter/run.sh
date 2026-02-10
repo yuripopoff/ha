@@ -111,53 +111,15 @@ presence="0"
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
 
-echo "SYS_SOUND:" >&2
-ls -la /sys/class/sound >&2 || true
-
-for c in /sys/class/sound/card*; do
-  echo "== $c ==" >&2
-  echo -n "id: " >&2
-  cat "$c/id" 2>/dev/null >&2 || true
-  echo -n "name: " >&2
-  cat "$c/device/uevent" 2>/dev/null | head -n 20 >&2 || true
-done
-
-echo "PCM nodes:" >&2
-ls -la /dev/snd/pcm*C*D*c 2>/dev/null >&2 || true
-
-try_dev() {
-  local d="$1"
-  timeout 3 sox -t alsa "$d" -n trim 0 0.2 stat 2>&1 | awk '/RMS lev dB/{print $4}' | tail -n 1
-}
-
-for dev in plughw:0,0 plughw:1,0 plughw:2,0 plughw:3,0 hw:0,0 hw:1,0 hw:2,0 hw:3,0; do
-  echo "Probing $dev ..." >&2
-  out=$(try_dev "$dev" || true)
-  if [[ -n "$out" ]]; then
-    echo "FOUND $dev -> $out dB" >&2
-    ALSA_DEV_FOUND="$dev"
-    break
-  fi
-done
-
-echo "PCM DEVICES:" >&2
-ls -la /dev/snd/pcm* >&2 || true
-
-for c in /sys/class/sound/card*; do
-  echo "== $c ==" >&2
-  echo -n "id=" >&2; cat "$c/id" 2>/dev/null >&2 || echo "(no id)" >&2
-  echo -n "number=" >&2; basename "$c" >&2
-done
-
-echo "SOX FORMATS:" >&2
-sox --help 2>&1 | head -n 40 >&2
-sox -h 2>&1 | grep -i alsa >&2 || true
 
 echo "ARECORD -l:" >&2
 arecord -l >&2 || true
 
 echo "ARECORD -L (first 120 lines):" >&2
 arecord -L 2>&1 | head -n 120 >&2 || true
+
+echo "SOX: help-format alsa:" >&2
+sox --help-format alsa 2>&1 | head -n 80 >&2 || true
 
 try_dev() {
   local d="$1"
@@ -179,7 +141,6 @@ try_dev() {
 }
 
 PROBES=(
-  "sysdefault:CARD=0"
   "sysdefault:CARD=1"
   "sysdefault:CARD=2"
   "dsnoop:CARD=1,DEV=0"
@@ -203,6 +164,7 @@ if [[ -z "${ALSA_DEV_FOUND:-}" ]]; then
   echo "No ALSA capture device found" >&2
   sleep 3600
 fi
+
 
 # ===== Main loop =====
 while true; do
