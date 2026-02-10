@@ -5,7 +5,12 @@ def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
     if user:
         cmd += ["-u", user, "-P", pw]
-    subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # timeout чтобы не зависнуть на DNS/сети/брокере
+    r = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=3)
+
+    if r.returncode != 0:
+        print(f"mosquitto_pub failed rc={r.returncode} topic={topic} stderr={r.stderr.strip()}", flush=True)
 
 def rms_dbfs(samples):
     # samples: list[int16]
@@ -48,7 +53,7 @@ def main():
         "-t", "raw",
         "-"
     ]
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
 
     hop_samples = int(args.rate * args.hop)
     hop_bytes = hop_samples * 2  # int16
@@ -59,9 +64,21 @@ def main():
     pres_keep = max(1, int(args.presence_window / args.hop))
 
     presence = 0
+    tick = 0
 
     while True:
         raw = p.stdout.read(hop_bytes)
+
+        # если sox завершился — выведи причину и упади (пусть аддон перезапустится)
+        if raw is None or len(raw) == 0:
+            rc = p.poll()
+            if rc is not None:
+                err = (p.stderr.read() or b"").decode("utf-8", "ignore")
+                print(f"sox exited rc={rc}. stderr:\n{err}", flush=True)
+                raise SystemExit(2)
+            time.sleep(0.05)
+            continue
+
         if not raw or len(raw) < hop_bytes:
             time.sleep(0.05)
             continue
@@ -92,6 +109,10 @@ def main():
                       f"{args.mqtt_prefix}/max_db", f"{max5:.2f}")
         mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
                       f"{args.mqtt_prefix}/presence", str(presence))
+
+        tick += 1
+        if tick % 10 == 0:
+            print(f"audio ok: db={db:.2f} avg2={avg2:.2f} avg5={avg5:.2f} presence={presence}", flush=True)
 
 if __name__ == "__main__":
     main()
