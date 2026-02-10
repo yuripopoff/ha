@@ -82,7 +82,7 @@ publish_discovery() {
 # ===== Audio measurement =====
 measure_db() {
   local out rms db
-  out=$(timeout 4 sox -t alsa "$ALSA_DEVICE" -n trim 0 1 stat 2>&1) || {
+  out=$(timeout 4 sox -t alsa "$ALSA_DEVICE" -n trim 0 1 gain 8 stat 2>&1) || {
     echo "sox failed: $out" >&2
     return 1
   }
