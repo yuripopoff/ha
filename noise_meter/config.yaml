@@ -5,7 +5,6 @@ description: Measures noise level from USB microphone and publishes to MQTT
 startup: services
 boot: auto
 audio: true
-#privileged: true
 full_access: true
 
 arch:
@@ -16,7 +15,7 @@ devices:
   - /dev/snd
 
 options:
-  alsa_device: /dev/snd/by-id/usb-XXX-00
+  alsa_device: default
   mqtt_host: core-mosquitto
   mqtt_port: 1883
   mqtt_username: mqtt_noise_meter

@@ -81,12 +81,11 @@ publish_discovery() {
 
 # ===== Audio measurement =====
 measure_db() {
-  local out
+  local out db
   out=$(timeout 4 sox -t alsa "$ALSA_DEVICE" -n trim 0 1 stat 2>&1) || {
-    echo "sox failed (exit=$?): $out" >&2
+    echo "sox failed: $out" >&2
     return 1
   }
-  local db
   db=$(echo "$out" | awk '/RMS lev dB/{print $4}' | tail -n 1)
   [[ -n "${db:-}" ]] || { echo "no RMS line: $out" >&2; return 1; }
   echo "$db"
@@ -111,85 +110,8 @@ presence="0"
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
 
-# ---- ALSA procfs workaround (HAOS containers sometimes have no /proc/asound) ----
-if [ ! -e /proc/asound/cards ]; then
-  echo "No /proc/asound/cards — creating tmpfs + fake cards list" >&2
-
-  # mount tmpfs on /proc/asound (needs privileged + util-linux mount)
-  mkdir -p /proc/asound 2>/dev/null || true
-  mount -t tmpfs tmpfs /proc/asound 2>/dev/null || true
-
-  # Build a minimal /proc/asound/cards that alsa-lib can parse.
-  # We map numbers 0/1/2 to C0/C1/C2 that you actually have in /dev/snd/*
-  cat > /proc/asound/cards <<'EOF'
- 0 [card0          ]: HDA-Intel - HDA Intel
-                      Dummy line
- 1 [card1          ]: USB-Audio - USB Audio #1
-                      Dummy line
- 2 [card2          ]: USB-Audio - USB Audio #2
-                      Dummy line
-EOF
-
-  # (Optional) show it
-  echo "FAKE /proc/asound/cards:" >&2
-  cat /proc/asound/cards >&2
-fi
-# -------------------------------------------------------------------------------
-
-
-echo "ARECORD -l:" >&2
-arecord -l >&2 || true
-
-echo "ARECORD -L (first 120 lines):" >&2
-arecord -L 2>&1 | head -n 120 >&2 || true
-
-echo "SOX: help-format alsa:" >&2
-sox --help-format alsa 2>&1 | head -n 80 >&2 || true
-
-try_dev() {
-  local d="$1"
-  local out db
-
-  out=$(timeout 3 sox -t alsa "$d" -n trim 0 0.2 stat 2>&1) || {
-    echo "Probe FAILED for [$d]: $out" >&2
-    return 1
-  }
-
-  db=$(echo "$out" | awk '/RMS lev dB/{print $4}' | tail -n 1)
-  if [[ -n "${db:-}" ]]; then
-    echo "$db"
-    return 0
-  fi
-
-  echo "Probe FAILED for [$d]: no RMS line. Output: $out" >&2
-  return 1
-}
-
-PROBES=(
-  "sysdefault:CARD=1"
-  "sysdefault:CARD=2"
-  "dsnoop:CARD=1,DEV=0"
-  "dsnoop:CARD=2,DEV=0"
-  "hw:1,0"
-  "hw:2,0"
-  "plughw:1,0"
-  "plughw:2,0"
-)
-
-for dev in "${PROBES[@]}"; do
-  echo "Probing $dev ..." >&2
-  if db=$(try_dev "$dev"); then
-    echo "FOUND $dev -> $db dB" >&2
-    ALSA_DEV_FOUND="$dev"
-    break
-  fi
-done
-
-if [[ -z "${ALSA_DEV_FOUND:-}" ]]; then
-  echo "No ALSA capture device found" >&2
-  sleep 3600
-fi
-
+echo "Check pulse plugin:" >&2
+ls -la /usr/lib/alsa-lib/libasound_module_pcm_pulse.so 2>/dev/null >&2 || true
 
 # ===== Main loop =====
 while true; do
