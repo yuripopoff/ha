@@ -81,14 +81,29 @@ publish_discovery() {
 
 # ===== Audio measurement =====
 measure_db() {
-  local out db
+  local out rms db
   out=$(timeout 4 sox -t alsa "$ALSA_DEVICE" -n trim 0 1 stat 2>&1) || {
     echo "sox failed: $out" >&2
     return 1
   }
-  db=$(echo "$out" | awk '/RMS lev dB/{print $4}' | tail -n 1)
-  [[ -n "${db:-}" ]] || { echo "no RMS line: $out" >&2; return 1; }
-  echo "$db"
+
+  # Берём RMS amplitude (число 0..1)
+  rms=$(echo "$out" | awk '/RMS[[:space:]]+amplitude:/{print $3}' | tail -n 1)
+
+  if [[ -z "${rms:-}" ]]; then
+    echo "no RMS amplitude line: $out" >&2
+    return 1
+  fi
+
+  # Защита от log(0)
+  # dBFS = 20*log10(rms)
+  db=$(awk -v r="$rms" 'BEGIN{
+    if (r<=0) { print -120.0; exit }
+    print (20*log(r)/log(10))
+  }')
+
+  # Округлим
+  awk -v x="$db" 'BEGIN{printf "%.2f", x}'
 }
 
 ceil_div() {
@@ -109,9 +124,6 @@ presence="0"
 
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
-
-echo "Check pulse plugin:" >&2
-ls -la /usr/lib/alsa-lib/libasound_module_pcm_pulse.so 2>/dev/null >&2 || true
 
 # ===== Main loop =====
 while true; do
