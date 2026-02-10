@@ -1,6 +1,7 @@
 FROM alpine:3.19
 
-RUN apk add --no-cache bash jq sox alsa-utils mosquitto-clients coreutils
+RUN apk add --no-cache bash jq sox alsa-utils mosquitto-clients coreutils \
+    sox-fmt-alsa alsa-lib alsa-utils alsa-plugins
 
 COPY run.sh /run.sh
 RUN chmod +x /run.sh

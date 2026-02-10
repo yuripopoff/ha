@@ -154,6 +154,8 @@ for c in /sys/class/sound/card*; do
   echo -n "number=" >&2; basename "$c" >&2
 done
 
+sox --help 2>&1 | head -n 40 >&2
+sox -h 2>&1 | grep -i alsa >&2 || true
 
 # ===== Main loop =====
 while true; do
