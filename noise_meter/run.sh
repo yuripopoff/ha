@@ -158,6 +158,52 @@ echo "SOX FORMATS:" >&2
 sox --help 2>&1 | head -n 40 >&2
 sox -h 2>&1 | grep -i alsa >&2 || true
 
+echo "ARECORD -l:" >&2
+arecord -l >&2 || true
+
+echo "ARECORD -L (first 80 lines):" >&2
+arecord -L 2>/dev/null | head -n 80 >&2 || true
+
+try_dev() {
+  local d="$1"
+  local err
+  err=$(timeout 3 sox -t alsa "$d" -n trim 0 0.2 stat 2>&1 >/dev/null) || true
+
+  # Если получилось — в err будет stat-вывод, и там есть RMS lev dB
+  db=$(echo "$err" | awk '/RMS lev dB/{print $4}' | tail -n 1)
+  if [[ -n "${db:-}" ]]; then
+    echo "$db"
+    return 0
+  fi
+
+  # Не получилось — покажем, ПОЧЕМУ
+  echo "Probe FAILED for [$d]: $err" >&2
+  return 1
+}
+
+PROBES=(
+  "sysdefault:CARD=0"
+  "sysdefault:CARD=1"
+  "sysdefault:CARD=2"
+  "dsnoop:CARD=1,DEV=0"
+  "dsnoop:CARD=2,DEV=0"
+  "hw:1,0"
+  "hw:2,0"
+  "plughw:1,0"
+  "plughw:2,0"
+)
+
+for dev in "${PROBES[@]}"; do
+  echo "Probing $dev ..." >&2
+  out=$(try_dev "$dev" || true)
+  if [[ -n "$out" ]]; then
+    echo "FOUND $dev -> $out dB" >&2
+    ALSA_DEV_FOUND="$dev"
+    break
+  fi
+done
+
+
 # ===== Main loop =====
 while true; do
   db=$(measure_db || true)
