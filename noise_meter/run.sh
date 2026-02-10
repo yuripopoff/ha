@@ -18,6 +18,10 @@ topic_max="${MQTT_PREFIX}/max_db"
 
 # One measurement = 1 second audio, deterministic
 measure_db() {
+  echo "Measuring noise..."
+  LEVEL=$(sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}')
+  echo "Level=$LEVEL"
+
   # Output example line contains: "RMS lev dB     -32.45"
   sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
 }
@@ -84,4 +88,6 @@ while true; do
   publish "$topic_presence" "$presence_state"
   publish "$topic_avg" "$avg"
   publish "$topic_max" "$max"
+
+  sleep 5
 done
