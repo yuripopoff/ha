@@ -15,6 +15,8 @@ devices:
 options:
   mqtt_host: core-mosquitto
   mqtt_port: 1883
+  mqtt_username: mqtt_noise_meter
+  mqtt_password: "p@ssw0rd"
   mqtt_prefix: home/noise
 
   presence_on_db: -35
@@ -26,6 +28,8 @@ options:
 schema:
   mqtt_host: str
   mqtt_port: int
+  mqtt_username: str
+  mqtt_password: password
   mqtt_prefix: str
 
   presence_on_db: float

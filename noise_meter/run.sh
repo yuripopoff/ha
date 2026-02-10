@@ -5,6 +5,8 @@ set -euo pipefail
 MQTT_HOST=$(jq -r '.mqtt_host' /data/options.json)
 MQTT_PORT=$(jq -r '.mqtt_port' /data/options.json)
 MQTT_PREFIX=$(jq -r '.mqtt_prefix' /data/options.json)
+MQTT_USER=$(jq -r '.mqtt_username' /data/options.json)
+MQTT_PASS=$(jq -r '.mqtt_password' /data/options.json)
 
 P_ON=$(jq -r '.presence_on_db' /data/options.json)
 P_OFF=$(jq -r '.presence_off_db' /data/options.json)
@@ -18,7 +20,7 @@ DEVICE_NAME="Noise Meter (USB mic)"
 
 # ===== MQTT helpers =====
 pub() {
-  mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$1" -m "$2" -r
+  mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$1" -m "$2" -r
 }
 
 # ===== MQTT Discovery =====
