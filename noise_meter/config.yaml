@@ -20,8 +20,8 @@ options:
   mqtt_password: "p@ssw0rd"
   mqtt_prefix: home/noise
 
-  presence_on_db: -35
-  presence_off_db: -42
+  presence_on_db: -35.0
+  presence_off_db: -42.0
 
   presence_window_s: 2
   noise_window_s: 5

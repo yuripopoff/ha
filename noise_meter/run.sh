@@ -8,6 +8,8 @@ MQTT_PREFIX=$(jq -r '.mqtt_prefix' /data/options.json)
 MQTT_USER=$(jq -r '.mqtt_username' /data/options.json)
 MQTT_PASS=$(jq -r '.mqtt_password' /data/options.json)
 
+ALSA_DEV="plughw:2,0"
+
 P_ON=$(jq -r '.presence_on_db' /data/options.json)
 P_OFF=$(jq -r '.presence_off_db' /data/options.json)
 
@@ -79,22 +81,14 @@ publish_discovery() {
 
 # ===== Audio measurement =====
 measure_db() {
-  # Пишем диагностику в log (stderr), а stdout оставляем для числа
   local out
-  out=$(timeout 4 sox -d -n trim 0 1 stat 2>&1) || {
+  out=$(timeout 4 sox -t alsa "$ALSA_DEV" -n trim 0 1 stat 2>&1) || {
     echo "sox failed (exit=$?): $out" >&2
     return 1
   }
-
-  # Вытащим RMS dB
   local db
   db=$(echo "$out" | awk '/RMS lev dB/{print $4}' | tail -n 1)
-
-  if [[ -z "${db:-}" ]]; then
-    echo "sox no RMS lev dB line. Full output: $out" >&2
-    return 1
-  fi
-
+  [[ -n "${db:-}" ]] || { echo "no RMS line: $out" >&2; return 1; }
   echo "$db"
 }
 
@@ -119,6 +113,11 @@ publish_discovery
 
 echo "DEV SND:" >&2
 ls -la /dev/snd >&2 || echo "/dev/snd missing" >&2
+
+echo "ALSA cards:" >&2
+cat /proc/asound/cards >&2 || true
+echo "ALSA devices:" >&2
+cat /proc/asound/pcm >&2 || true
 
 # ===== Main loop =====
 while true; do
