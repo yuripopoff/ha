@@ -79,8 +79,23 @@ publish_discovery() {
 
 # ===== Audio measurement =====
 measure_db() {
-  echo "-40.00";
-  # timeout 3 sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
+  # Пишем диагностику в log (stderr), а stdout оставляем для числа
+  local out
+  out=$(timeout 4 sox -d -n trim 0 1 stat 2>&1) || {
+    echo "sox failed (exit=$?): $out" >&2
+    return 1
+  }
+
+  # Вытащим RMS dB
+  local db
+  db=$(echo "$out" | awk '/RMS lev dB/{print $4}' | tail -n 1)
+
+  if [[ -z "${db:-}" ]]; then
+    echo "sox no RMS lev dB line. Full output: $out" >&2
+    return 1
+  fi
+
+  echo "$db"
 }
 
 ceil_div() {
@@ -101,6 +116,9 @@ presence="0"
 
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
+
+echo "DEV SND:" >&2
+ls -la /dev/snd >&2 || echo "/dev/snd missing" >&2
 
 # ===== Main loop =====
 while true; do
