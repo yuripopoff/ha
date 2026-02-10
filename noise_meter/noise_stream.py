@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
+# noise_stream.py - reads audio from ALSA device using sox, calculates noise level in dBFS and presence, and publishes to MQTT.
+
 import argparse, math, struct, time, subprocess, collections
+
+print("PY: module loaded", flush=True)
 
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
@@ -26,6 +30,8 @@ def rms_dbfs(samples):
     return 20.0 * math.log10(rms / 32768.0)
 
 def main():
+    print("PY: entered main()", flush=True)
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="default")
     ap.add_argument("--rate", type=int, default=48000)
@@ -42,6 +48,8 @@ def main():
     ap.add_argument("--mqtt-prefix", required=True)
     args = ap.parse_args()
 
+    print("PY: args parsed:", args, flush=True)
+
     # sox -> raw PCM stream (int16, mono)
     cmd = [
         "sox",
@@ -53,7 +61,9 @@ def main():
         "-t", "raw",
         "-"
     ]
+    print("PY: starting sox:", cmd, flush=True)
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    print("PY: sox started, pid=", p.pid, flush=True)
 
     hop_samples = int(args.rate * args.hop)
     hop_bytes = hop_samples * 2  # int16

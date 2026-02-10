@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# run-py.sh: run the noise meter with Python implementation
+
 set -euo pipefail
 
 MQTT_HOST=$(jq -r '.mqtt_host' /data/options.json)
@@ -16,9 +18,17 @@ HOP_S=$(jq -r '.hop_s' /data/options.json)
 AUDIO_DEVICE=$(jq -r '.audio_device' /data/options.json)
 SAMPLE_RATE=$(jq -r '.sample_rate' /data/options.json)
 
-echo "Noise Meter started. device=${AUDIO_DEVICE}, rate=${SAMPLE_RATE}, hop=${HOP_S}s v1"
+echo "Noise Meter started. device=${AUDIO_DEVICE}, rate=${SAMPLE_RATE}, hop=${HOP_S}s v2"
 
-exec python3 /noise_stream.py \
+python3 -V
+ls -la /
+ls -la /noise_stream.py
+head -n 40 /noise_stream.py
+
+mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" \
+  -t "$MQTT_PREFIX/max_db" -m "42" -r || true
+
+exec python3 -u /noise_stream.py \
   --device "$AUDIO_DEVICE" \
   --rate "$SAMPLE_RATE" \
   --hop "$HOP_S" \
