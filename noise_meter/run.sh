@@ -8,7 +8,7 @@ MQTT_PREFIX=$(jq -r '.mqtt_prefix' /data/options.json)
 MQTT_USER=$(jq -r '.mqtt_username' /data/options.json)
 MQTT_PASS=$(jq -r '.mqtt_password' /data/options.json)
 
-ALSA_DEV="plughw:2,0"
+ALSA_DEVICE=$(jq -r '.alsa_device' /data/options.json)
 
 P_ON=$(jq -r '.presence_on_db' /data/options.json)
 P_OFF=$(jq -r '.presence_off_db' /data/options.json)
@@ -82,7 +82,7 @@ publish_discovery() {
 # ===== Audio measurement =====
 measure_db() {
   local out
-  out=$(timeout 4 sox -t alsa "$ALSA_DEV" -n trim 0 1 stat 2>&1) || {
+  out=$(timeout 4 sox -t alsa "$ALSA_DEVICE" -n trim 0 1 stat 2>&1) || {
     echo "sox failed (exit=$?): $out" >&2
     return 1
   }
