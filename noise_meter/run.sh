@@ -23,7 +23,7 @@ measure_db() {
   echo "Level=$LEVEL"
 
   # Output example line contains: "RMS lev dB     -32.45"
-  sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
+  # sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
 }
 
 publish() {
