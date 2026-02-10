@@ -5,8 +5,8 @@ description: Measures noise level from USB microphone and publishes to MQTT
 startup: services
 boot: auto
 audio: true
-privileged: true
-# full_access: true
+#privileged: true
+full_access: true
 
 arch:
   - amd64
