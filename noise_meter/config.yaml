@@ -1,0 +1,32 @@
+name: Noise Meter (USB mic)
+version: "0.1"
+slug: noise_meter
+description: Measures noise level from USB microphone and publishes to MQTT
+startup: services
+boot: auto
+
+# Важно: доступ к звуковому устройству
+devices:
+  - /dev/snd
+
+options:
+  mqtt_host: core-mosquitto
+  mqtt_port: 1883
+  mqtt_prefix: home/noise
+
+  presence_on_db: -35
+  presence_off_db: -42
+
+  presence_window_s: 2
+  noise_window_s: 5
+
+schema:
+  mqtt_host: str
+  mqtt_port: int
+  mqtt_prefix: str
+
+  presence_on_db: float
+  presence_off_db: float
+
+  presence_window_s: int
+  noise_window_s: int
