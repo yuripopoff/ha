@@ -140,10 +140,19 @@ for dev in plughw:0,0 plughw:1,0 plughw:2,0 plughw:3,0 hw:0,0 hw:1,0 hw:2,0 hw:3
   fi
 done
 
+echo "PCM DEVICES:" >&2
+ls -la /dev/snd/pcm* >&2 || true
+
 if [[ -z "${ALSA_DEV_FOUND:-}" ]]; then
   echo "No ALSA capture device found" >&2
   sleep 3600
 fi
+
+for c in /sys/class/sound/card*; do
+  echo "== $c ==" >&2
+  echo -n "id=" >&2; cat "$c/id" 2>/dev/null >&2 || echo "(no id)" >&2
+  echo -n "number=" >&2; basename "$c" >&2
+done
 
 
 # ===== Main loop =====
