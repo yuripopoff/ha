@@ -6,7 +6,7 @@ startup: services
 boot: auto
 audio: true
 privileged: true
-full_access: true
+# full_access: true
 
 arch:
   - amd64
