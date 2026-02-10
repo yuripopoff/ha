@@ -161,23 +161,25 @@ sox -h 2>&1 | grep -i alsa >&2 || true
 echo "ARECORD -l:" >&2
 arecord -l >&2 || true
 
-echo "ARECORD -L (first 80 lines):" >&2
-arecord -L 2>/dev/null | head -n 80 >&2 || true
+echo "ARECORD -L (first 120 lines):" >&2
+arecord -L 2>&1 | head -n 120 >&2 || true
 
 try_dev() {
   local d="$1"
-  local err
-  err=$(timeout 3 sox -t alsa "$d" -n trim 0 0.2 stat 2>&1 >/dev/null) || true
+  local out db
 
-  # Если получилось — в err будет stat-вывод, и там есть RMS lev dB
-  db=$(echo "$err" | awk '/RMS lev dB/{print $4}' | tail -n 1)
+  out=$(timeout 3 sox -t alsa "$d" -n trim 0 0.2 stat 2>&1) || {
+    echo "Probe FAILED for [$d]: $out" >&2
+    return 1
+  }
+
+  db=$(echo "$out" | awk '/RMS lev dB/{print $4}' | tail -n 1)
   if [[ -n "${db:-}" ]]; then
     echo "$db"
     return 0
   fi
 
-  # Не получилось — покажем, ПОЧЕМУ
-  echo "Probe FAILED for [$d]: $err" >&2
+  echo "Probe FAILED for [$d]: no RMS line. Output: $out" >&2
   return 1
 }
 
@@ -195,14 +197,12 @@ PROBES=(
 
 for dev in "${PROBES[@]}"; do
   echo "Probing $dev ..." >&2
-  out=$(try_dev "$dev" || true)
-  if [[ -n "$out" ]]; then
-    echo "FOUND $dev -> $out dB" >&2
+  if db=$(try_dev "$dev"); then
+    echo "FOUND $dev -> $db dB" >&2
     ALSA_DEV_FOUND="$dev"
     break
   fi
 done
-
 
 # ===== Main loop =====
 while true; do
