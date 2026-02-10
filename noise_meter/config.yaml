@@ -4,6 +4,7 @@ slug: noise_meter
 description: Measures noise level from USB microphone and publishes to MQTT
 startup: services
 boot: auto
+audio: true
 
 arch:
   - amd64

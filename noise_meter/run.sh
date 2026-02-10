@@ -79,7 +79,8 @@ publish_discovery() {
 
 # ===== Audio measurement =====
 measure_db() {
-  timeout 3 sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
+  echo "-40.00";
+  # timeout 3 sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
 }
 
 ceil_div() {
