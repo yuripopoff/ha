@@ -15,7 +15,7 @@ devices:
   - /dev/snd
 
 options:
-  alsa_device: default
+  audio_device: default
   mqtt_host: core-mosquitto
   mqtt_port: 1883
   mqtt_username: mqtt_noise_meter
@@ -28,8 +28,11 @@ options:
   presence_window_s: 2
   noise_window_s: 5
 
+  sample_rate: 16000
+  hop_s: 1.0
+
 schema:
-  alsa_device: str
+  audio_device: str
   mqtt_host: str
   mqtt_port: int
   mqtt_username: str
@@ -41,3 +44,7 @@ schema:
 
   presence_window_s: int
   noise_window_s: int
+
+  sample_rate: int
+  hop_s: float
+
