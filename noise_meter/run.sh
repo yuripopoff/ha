@@ -125,15 +125,14 @@ presence="0"
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
 
-echo "arecord -l"
-arecord -l
-echo "amixer -c 2"
-amixer -c 2
-echo "amixer -c 2 scontrols"
-amixer -c 2 scontrols
-echo "alsamixer -c 2"
-alsamixer -c 2
+echo "pactl info"
+pactl info || true
 
+echo "pactl list short sources"
+pactl list short sources || true
+
+echo "pactl list sources (names + volume)"
+pactl list sources | sed -n '1,200p' || true
 
 
 # ===== Main loop =====
