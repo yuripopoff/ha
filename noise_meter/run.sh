@@ -143,11 +143,6 @@ done
 echo "PCM DEVICES:" >&2
 ls -la /dev/snd/pcm* >&2 || true
 
-if [[ -z "${ALSA_DEV_FOUND:-}" ]]; then
-  echo "No ALSA capture device found" >&2
-  sleep 3600
-fi
-
 for c in /sys/class/sound/card*; do
   echo "== $c ==" >&2
   echo -n "id=" >&2; cat "$c/id" 2>/dev/null >&2 || echo "(no id)" >&2
@@ -203,6 +198,11 @@ for dev in "${PROBES[@]}"; do
     break
   fi
 done
+
+if [[ -z "${ALSA_DEV_FOUND:-}" ]]; then
+  echo "No ALSA capture device found" >&2
+  sleep 3600
+fi
 
 # ===== Main loop =====
 while true; do
