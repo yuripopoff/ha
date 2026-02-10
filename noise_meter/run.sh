@@ -111,6 +111,31 @@ presence="0"
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
 publish_discovery
 
+# ---- ALSA procfs workaround (HAOS containers sometimes have no /proc/asound) ----
+if [ ! -e /proc/asound/cards ]; then
+  echo "No /proc/asound/cards — creating tmpfs + fake cards list" >&2
+
+  # mount tmpfs on /proc/asound (needs privileged + util-linux mount)
+  mkdir -p /proc/asound 2>/dev/null || true
+  mount -t tmpfs tmpfs /proc/asound 2>/dev/null || true
+
+  # Build a minimal /proc/asound/cards that alsa-lib can parse.
+  # We map numbers 0/1/2 to C0/C1/C2 that you actually have in /dev/snd/*
+  cat > /proc/asound/cards <<'EOF'
+ 0 [card0          ]: HDA-Intel - HDA Intel
+                      Dummy line
+ 1 [card1          ]: USB-Audio - USB Audio #1
+                      Dummy line
+ 2 [card2          ]: USB-Audio - USB Audio #2
+                      Dummy line
+EOF
+
+  # (Optional) show it
+  echo "FAKE /proc/asound/cards:" >&2
+  cat /proc/asound/cards >&2
+fi
+# -------------------------------------------------------------------------------
+
 
 echo "ARECORD -l:" >&2
 arecord -l >&2 || true
