@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load options
+# ===== Load options =====
 MQTT_HOST=$(jq -r '.mqtt_host' /data/options.json)
 MQTT_PORT=$(jq -r '.mqtt_port' /data/options.json)
 MQTT_PREFIX=$(jq -r '.mqtt_prefix' /data/options.json)
@@ -12,82 +12,122 @@ P_OFF=$(jq -r '.presence_off_db' /data/options.json)
 W_P=$(jq -r '.presence_window_s' /data/options.json)
 W_N=$(jq -r '.noise_window_s' /data/options.json)
 
-topic_presence="${MQTT_PREFIX}/presence"
-topic_avg="${MQTT_PREFIX}/avg_db"
-topic_max="${MQTT_PREFIX}/max_db"
+SAMPLE_PERIOD=5   # seconds between measurements
+DEVICE_ID="noise_meter_usb"
+DEVICE_NAME="Noise Meter (USB mic)"
 
-# One measurement = 1 second audio, deterministic
+# ===== MQTT helpers =====
+pub() {
+  mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$1" -m "$2" -r
+}
+
+# ===== MQTT Discovery =====
+DISCOVERY_PREFIX="homeassistant"
+
+publish_discovery() {
+  # avg noise sensor
+  pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/avg_db/config" "$(jq -nc \
+    --arg name "Noise level (avg)" \
+    --arg uid "${DEVICE_ID}_avg" \
+    --arg topic "$MQTT_PREFIX/avg_db" \
+    --arg dev "$DEVICE_ID" \
+    '{
+      name: $name,
+      unique_id: $uid,
+      state_topic: $topic,
+      unit_of_measurement: "dB",
+      device_class: "sound_pressure",
+      device: { identifiers: [$dev], name: "Noise Meter (USB mic)" }
+    }'
+  )"
+
+  # max noise sensor
+  pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/max_db/config" "$(jq -nc \
+    --arg name "Noise level (max)" \
+    --arg uid "${DEVICE_ID}_max" \
+    --arg topic "$MQTT_PREFIX/max_db" \
+    --arg dev "$DEVICE_ID" \
+    '{
+      name: $name,
+      unique_id: $uid,
+      state_topic: $topic,
+      unit_of_measurement: "dB",
+      device_class: "sound_pressure",
+      device: { identifiers: [$dev], name: "Noise Meter (USB mic)" }
+    }'
+  )"
+
+  # presence binary sensor
+  pub "$DISCOVERY_PREFIX/binary_sensor/$DEVICE_ID/presence/config" "$(jq -nc \
+    --arg name "Presence (by noise)" \
+    --arg uid "${DEVICE_ID}_presence" \
+    --arg topic "$MQTT_PREFIX/presence" \
+    --arg dev "$DEVICE_ID" \
+    '{
+      name: $name,
+      unique_id: $uid,
+      state_topic: $topic,
+      payload_on: "1",
+      payload_off: "0",
+      device_class: "occupancy",
+      device: { identifiers: [$dev], name: "Noise Meter (USB mic)" }
+    }'
+  )"
+}
+
+# ===== Audio measurement =====
 measure_db() {
-  echo "Measuring noise..."
-  LEVEL=$(sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}')
-  echo "Level=$LEVEL"
-
-  # Output example line contains: "RMS lev dB     -32.45"
-  # sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
+  timeout 3 sox -d -n trim 0 1 stat 2>&1 | awk '/RMS lev dB/{print $4}'
 }
 
-publish() {
-  local topic="$1"
-  local payload="$2"
-  mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$topic" -m "$payload" -r
+ceil_div() {
+  awk -v a="$1" -v b="$2" 'BEGIN{print int((a + b - 1)/b)}'
 }
 
-# Ring buffers in plain text files (простая реализация)
+P_SAMPLES=$(ceil_div "$W_P" "$SAMPLE_PERIOD")
+N_SAMPLES=$(ceil_div "$W_N" "$SAMPLE_PERIOD")
+
 tmpdir="/tmp/noise"
 mkdir -p "$tmpdir"
-pfile="$tmpdir/presence_samples.txt"
-nfile="$tmpdir/noise_samples.txt"
+pfile="$tmpdir/p.txt"
+nfile="$tmpdir/n.txt"
 : > "$pfile"
 : > "$nfile"
 
-presence_state="0"
-last_avg=""
-last_max=""
+presence="0"
 
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
-echo "Presence on>${P_ON} off<${P_OFF}, windows: presence=${W_P}s noise=${W_N}s"
+publish_discovery
 
+# ===== Main loop =====
 while true; do
   db=$(measure_db || true)
+  db="${db//$'\n'/}"
 
-  # Если микрофон не отдал число — пропустим итерацию
-  if [[ -z "${db}" ]]; then
+  if ! awk -v x="$db" 'BEGIN{exit !(x ~ /^-?[0-9]+(\.[0-9]+)?$/)}'; then
+    sleep "$SAMPLE_PERIOD"
     continue
   fi
 
-  # Append samples (1 sample = 1 second)
   echo "$db" >> "$pfile"
   echo "$db" >> "$nfile"
 
-  # Trim to windows (keep last N lines)
-  tail -n "$W_P" "$pfile" > "${pfile}.tmp" && mv "${pfile}.tmp" "$pfile"
-  tail -n "$W_N" "$nfile" > "${nfile}.tmp" && mv "${nfile}.tmp" "$nfile"
+  tail -n "$P_SAMPLES" "$pfile" > "$pfile.tmp" && mv "$pfile.tmp" "$pfile"
+  tail -n "$N_SAMPLES" "$nfile" > "$nfile.tmp" && mv "$nfile.tmp" "$nfile"
 
-  # Compute avg/max for noise window
-  avg=$(awk '{s+=$1} END {if(NR>0) printf("%.2f", s/NR); else print ""}' "$nfile")
-  max=$(awk 'NR==1{m=$1} {if($1>m)m=$1} END {if(NR>0) printf("%.2f", m); else print ""}' "$nfile")
+  avg=$(awk '{s+=$1} END{printf "%.2f", s/NR}' "$nfile")
+  max=$(awk 'NR==1{m=$1}{if($1>m)m=$1} END{printf "%.2f", m}' "$nfile")
+  pavg=$(awk '{s+=$1} END{printf "%.2f", s/NR}' "$pfile")
 
-  # Presence logic: use avg over presence window + hysteresis
-  p_avg=$(awk '{s+=$1} END {if(NR>0) printf("%.2f", s/NR); else print ""}' "$pfile")
-
-  if [[ -n "$p_avg" ]]; then
-    if [[ "$presence_state" == "0" ]]; then
-      # turn ON if above P_ON
-      if awk -v x="$p_avg" -v t="$P_ON" 'BEGIN{exit !(x>t)}'; then
-        presence_state="1"
-      fi
-    else
-      # turn OFF if below P_OFF
-      if awk -v x="$p_avg" -v t="$P_OFF" 'BEGIN{exit !(x<t)}'; then
-        presence_state="0"
-      fi
-    fi
+  if [[ "$presence" == "0" ]]; then
+    awk -v x="$pavg" -v t="$P_ON" 'BEGIN{exit !(x>t)}' && presence="1"
+  else
+    awk -v x="$pavg" -v t="$P_OFF" 'BEGIN{exit !(x<t)}' && presence="0"
   fi
 
-  # Publish retained values (простая версия — публикуем всегда)
-  publish "$topic_presence" "$presence_state"
-  publish "$topic_avg" "$avg"
-  publish "$topic_max" "$max"
+  pub "$MQTT_PREFIX/avg_db" "$avg"
+  pub "$MQTT_PREFIX/max_db" "$max"
+  pub "$MQTT_PREFIX/presence" "$presence"
 
-  sleep 5
+  sleep "$SAMPLE_PERIOD"
 done
