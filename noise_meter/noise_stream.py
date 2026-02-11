@@ -5,7 +5,9 @@ import argparse, math, struct, time, subprocess, collections, select
 
 def log(msg: str):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
-    log(f"{ts}: {msg}")
+    print(f"{ts}: {msg}",flush=True)
+
+log("PY module loaded.")
 
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
@@ -32,14 +34,14 @@ def rms_dbfs(samples):
     return 20.0 * math.log10(rms / 32768.0)
 
 def start_sox(cmd):
-    log("PY: starting sox:", cmd)
+    log(f"PY: starting sox: {cmd}")
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=0
     )
-    log("PY: sox started, pid=", proc.pid)
+    log(f"PY: sox started, pid={proc.pid}")
     return proc
 
 def q01(x: float) -> float:
@@ -109,7 +111,7 @@ def main():
     last_pub_avg1h = None
     last_pub_presence = None
 
-    i_pub_total=0
+    i_cycle_total=0
     i_pub_avg5 = 0
     i_pub_max5 = 0
     i_pub_avg1m = 0
@@ -221,34 +223,34 @@ def main():
         elif presence == 1 and avg2 < args.p_off:
             presence = 0
 
-        i_pub_total += 1
+        i_cycle_total += 1
 
         # avg 5s
-        if last_pub_avg5 is None or avg5q != last_pub_avg5:
+        if last_pub_avg5 is None or avg5 != last_pub_avg5:
             mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                          f"{args.mqtt_prefix}/avg_db", f"{avg5q:.1f}")
-            last_pub_avg5 = avg5q
+                          f"{args.mqtt_prefix}/avg_db", f"{avg5:.1f}")
+            last_pub_avg5 = avg5
             i_pub_avg5+=1
 
         # max 5s
-        if last_pub_max5 is None or max5q != last_pub_max5:
+        if last_pub_max5 is None or max5 != last_pub_max5:
             mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                          f"{args.mqtt_prefix}/max_db", f"{max5q:.1f}")
-            last_pub_max5 = max5q
+                          f"{args.mqtt_prefix}/max_db", f"{max5:.1f}")
+            last_pub_max5 = max5
             i_pub_max5+=1
 
         # avg 1m
-        if last_pub_avg1m is None or avg1mq != last_pub_avg1m:
+        if last_pub_avg1m is None or avg1m != last_pub_avg1m:
             mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                          f"{args.mqtt_prefix}/avg_1m_db", f"{avg1mq:.1f}")
-            last_pub_avg1m = avg1mq
+                          f"{args.mqtt_prefix}/avg_1m_db", f"{avg1m:.1f}")
+            last_pub_avg1m = avg1m
             i_pub_avg1m+=1
 
         # avg 1h
-        if last_pub_avg1h is None or avg1hq != last_pub_avg1h:
+        if last_pub_avg1h is None or avg1h != last_pub_avg1h:
             mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                          f"{args.mqtt_prefix}/avg_1h_db", f"{avg1hq:.1f}")
-            last_pub_avg1h = avg1hq
+                          f"{args.mqtt_prefix}/avg_1h_db", f"{avg1h:.1f}")
+            last_pub_avg1h = avg1h
             i_pub_avg1h+=1
 
         # presence (не квантовать)
@@ -268,7 +270,7 @@ def main():
                 "+-------------------------------+------------+\n"
                 "| metric            value       | published  |\n"
                 "+-------------------------------+------------+\n"
-                f"| db (current)   {db:8.2f} dB | {i_pub_total:10d} |\n"
+                f"| db (current)   {db:8.2f} dB | {i_cycle_total:10d} |\n"
                 f"| avg5           {avg5:8.2f} dB | {i_pub_avg5:10d} |\n"
                 f"| max5           {max5:8.2f} dB | {i_pub_max5:10d} |\n"
                 f"| avg1m          {avg1m:8.2f} dB | {i_pub_avg1m:10d} |\n"
@@ -276,8 +278,6 @@ def main():
                 f"| presence       {presence_str:>8} | {i_pub_presence:10d} |\n"
                 "+-------------------------------+------------+"
             )
-
-log("PY module loaded.")
 
 if __name__ == "__main__":
     main()
