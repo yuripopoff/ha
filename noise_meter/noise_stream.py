@@ -3,7 +3,7 @@
 
 import argparse, math, struct, time, subprocess, collections, select
 
-print("PY: module loaded, V 2026-02-10 19:04", flush=True)
+print("PY: module loaded, V 2026-02-10 19:09", flush=True)
 
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
@@ -29,9 +29,13 @@ def rms_dbfs(samples):
     # full-scale for int16
     return 20.0 * math.log10(rms / 32768.0)
 
-def main():
-    print("PY: entered main()", flush=True)
+def start_sox():
+    print("PY: starting sox:", cmd, flush=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    print("PY: sox started, pid=", proc.pid, flush=True)
+    return proc
 
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="default")
     ap.add_argument("--rate", type=int, default=48000)
@@ -48,8 +52,6 @@ def main():
     ap.add_argument("--mqtt-prefix", required=True)
     args = ap.parse_args()
 
-    print("PY: args parsed:", args, flush=True)
-
     # sox -> raw PCM stream (int16, mono)
     cmd = [
         "sox",
@@ -61,9 +63,8 @@ def main():
         "-t", "raw",
         "-"
     ]
-    print("PY: starting sox:", cmd, flush=True)
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-    print("PY: sox started, pid=", p.pid, flush=True)
+
+    p = start_sox()
 
     hop_samples = int(args.rate * args.hop)
     hop_bytes = hop_samples * 2  # int16
@@ -76,6 +77,8 @@ def main():
     presence = 0
     tick = 0
     buf = bytearray()
+    stall_seconds = 0.0
+    last_stall_log = 0.0
 
     while True:
         # ждём данные максимум 2 секунды
@@ -85,15 +88,43 @@ def main():
             if rc is not None:
                 err = (p.stderr.read() or b"").decode("utf-8", "ignore")
                 print(f"sox exited rc={rc}. stderr:\n{err}", flush=True)
-                raise SystemExit(2)
 
-            print(f"PY: sox alive but no audio bytes for 2s (buf={len(buf)} bytes)", flush=True)
+                # пробуем рестарт вместо падения
+                time.sleep(0.2)
+                p = start_sox()
+                buf.clear()
+                stall_seconds = 0.0
+                continue
+
+            # sox жив, но данных нет
+            stall_seconds += 2.0
+
+            now = time.time()
+            if now - last_stall_log > 10:
+                print(f"PY: sox alive but no audio bytes for 2s (buf={len(buf)} bytes)", flush=True)
+                last_stall_log = now
+
+            # рестарт после 15 секунд тишины
+            if stall_seconds >= 15.0:
+                print("PY: restarting sox due to stalled stream", flush=True)
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+                time.sleep(0.2)
+                p = start_sox()
+                buf.clear()
+                stall_seconds = 0.0
+
             continue
 
         # читаем сколько есть (не пытаемся сразу hop_bytes)
         chunk = p.stdout.read(4096)
         if not chunk:
             continue
+
+        last_stall_log=time.time()
+
         buf.extend(chunk)
 
         if len(buf) < hop_bytes:
@@ -102,6 +133,8 @@ def main():
 
         raw = bytes(buf[:hop_bytes])
         del buf[:hop_bytes]
+
+        stall_seconds = 0.0
 
         # unpack int16 little-endian
         samples = struct.unpack("<%dh" % hop_samples, raw)

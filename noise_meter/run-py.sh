@@ -20,10 +20,8 @@ SAMPLE_RATE=$(jq -r '.sample_rate' /data/options.json)
 
 echo "Noise Meter started. device=${AUDIO_DEVICE}, rate=${SAMPLE_RATE}, hop=${HOP_S}s"
 
-echo "=== arecord -l ==="
-arecord -l || true
-echo "=== arecord -L (first 200 lines) ==="
-arecord -L | sed -n '1,200p' || true
+# Publish MQTT Discovery once on start
+/publish_discovery.sh || true
 
 exec python3 -u /noise_stream.py \
   --device "$AUDIO_DEVICE" \

@@ -28,57 +28,6 @@ pub() {
 # ===== MQTT Discovery =====
 DISCOVERY_PREFIX="homeassistant"
 
-publish_discovery() {
-  # avg noise sensor
-  pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/avg_db/config" "$(jq -nc \
-    --arg name "Noise level (avg)" \
-    --arg uid "${DEVICE_ID}_avg" \
-    --arg topic "$MQTT_PREFIX/avg_db" \
-    --arg dev "$DEVICE_ID" \
-    '{
-      name: $name,
-      unique_id: $uid,
-      state_topic: $topic,
-      unit_of_measurement: "dB",
-      device_class: "sound_pressure",
-      device: { identifiers: [$dev], name: "Noise Meter (USB mic)" }
-    }'
-  )"
-
-  # max noise sensor
-  pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/max_db/config" "$(jq -nc \
-    --arg name "Noise level (max)" \
-    --arg uid "${DEVICE_ID}_max" \
-    --arg topic "$MQTT_PREFIX/max_db" \
-    --arg dev "$DEVICE_ID" \
-    '{
-      name: $name,
-      unique_id: $uid,
-      state_topic: $topic,
-      unit_of_measurement: "dB",
-      device_class: "sound_pressure",
-      device: { identifiers: [$dev], name: "Noise Meter (USB mic)" }
-    }'
-  )"
-
-  # presence binary sensor
-  pub "$DISCOVERY_PREFIX/binary_sensor/$DEVICE_ID/presence/config" "$(jq -nc \
-    --arg name "Presence (by noise)" \
-    --arg uid "${DEVICE_ID}_presence" \
-    --arg topic "$MQTT_PREFIX/presence" \
-    --arg dev "$DEVICE_ID" \
-    '{
-      name: $name,
-      unique_id: $uid,
-      state_topic: $topic,
-      payload_on: "1",
-      payload_off: "0",
-      device_class: "occupancy",
-      device: { identifiers: [$dev], name: "Noise Meter (USB mic)" }
-    }'
-  )"
-}
-
 # ===== Audio measurement =====
 measure_db() {
   local out rms db
@@ -123,17 +72,9 @@ nfile="$tmpdir/n.txt"
 presence="0"
 
 echo "Noise Meter started. MQTT ${MQTT_HOST}:${MQTT_PORT}, prefix=${MQTT_PREFIX}"
-publish_discovery
 
-echo "pactl info"
-pactl info || true
-
-echo "pactl list short sources"
-pactl list short sources || true
-
-echo "pactl list sources (names + volume)"
-pactl list sources | sed -n '1,200p' || true
-
+# Publish MQTT Discovery once on start
+/publish_discovery.sh || true
 
 # ===== Main loop =====
 while true; do
