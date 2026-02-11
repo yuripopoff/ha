@@ -3,7 +3,7 @@
 
 import argparse, math, struct, time, subprocess, collections, select
 
-print("PY: module loaded, V 2026-02-10 19:09", flush=True)
+print("PY: module loaded, V 2026-02-10 19:24", flush=True)
 
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
@@ -29,9 +29,14 @@ def rms_dbfs(samples):
     # full-scale for int16
     return 20.0 * math.log10(rms / 32768.0)
 
-def start_sox():
+def start_sox(cmd):
     print("PY: starting sox:", cmd, flush=True)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0
+    )
     print("PY: sox started, pid=", proc.pid, flush=True)
     return proc
 
@@ -64,7 +69,7 @@ def main():
         "-"
     ]
 
-    p = start_sox()
+    p = start_sox(cmd)
 
     hop_samples = int(args.rate * args.hop)
     hop_bytes = hop_samples * 2  # int16
@@ -91,7 +96,7 @@ def main():
 
                 # пробуем рестарт вместо падения
                 time.sleep(0.2)
-                p = start_sox()
+                p = start_sox(cmd)
                 buf.clear()
                 stall_seconds = 0.0
                 continue
@@ -112,7 +117,7 @@ def main():
                 except Exception:
                     pass
                 time.sleep(0.2)
-                p = start_sox()
+                p = start_sox(cmd)
                 buf.clear()
                 stall_seconds = 0.0
 
