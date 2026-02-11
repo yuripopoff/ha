@@ -3,7 +3,7 @@
 
 import argparse, math, struct, time, subprocess, collections, select
 
-print("PY: module loaded", flush=True)
+print("PY: module loaded, V 2026-02-10 19:04", flush=True)
 
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
@@ -75,6 +75,7 @@ def main():
 
     presence = 0
     tick = 0
+    buf = bytearray()
 
     while True:
         # ждём данные максимум 2 секунды
@@ -86,14 +87,21 @@ def main():
                 print(f"sox exited rc={rc}. stderr:\n{err}", flush=True)
                 raise SystemExit(2)
 
-            # sox жив, но байтов нет — это и есть проблема, логируем и продолжаем
-            print("PY: sox alive but no audio bytes for 2s (device stalled?)", flush=True)
+            print(f"PY: sox alive but no audio bytes for 2s (buf={len(buf)} bytes)", flush=True)
             continue
 
-        raw = p.stdout.read(hop_bytes)
-        if raw is None or len(raw) < hop_bytes:
-            # мало байт — подождём ещё
+        # читаем сколько есть (не пытаемся сразу hop_bytes)
+        chunk = p.stdout.read(4096)
+        if not chunk:
             continue
+        buf.extend(chunk)
+
+        if len(buf) < hop_bytes:
+            # ещё не набрали окно
+            continue
+
+        raw = bytes(buf[:hop_bytes])
+        del buf[:hop_bytes]
 
         # unpack int16 little-endian
         samples = struct.unpack("<%dh" % hop_samples, raw)
