@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # noise_stream.py - reads audio from ALSA device using sox, calculates noise level in dBFS and presence, and publishes to MQTT.
 
-import argparse, math, struct, time, subprocess, collections
+import argparse, math, struct, time, subprocess, collections, select
 
 print("PY: module loaded", flush=True)
 
@@ -77,20 +77,22 @@ def main():
     tick = 0
 
     while True:
-        raw = p.stdout.read(hop_bytes)
-
-        # если sox завершился — выведи причину и упади (пусть аддон перезапустится)
-        if raw is None or len(raw) == 0:
+        # ждём данные максимум 2 секунды
+        rlist, _, _ = select.select([p.stdout], [], [], 2.0)
+        if not rlist:
             rc = p.poll()
             if rc is not None:
                 err = (p.stderr.read() or b"").decode("utf-8", "ignore")
                 print(f"sox exited rc={rc}. stderr:\n{err}", flush=True)
                 raise SystemExit(2)
-            time.sleep(0.05)
+
+            # sox жив, но байтов нет — это и есть проблема, логируем и продолжаем
+            print("PY: sox alive but no audio bytes for 2s (device stalled?)", flush=True)
             continue
 
-        if not raw or len(raw) < hop_bytes:
-            time.sleep(0.05)
+        raw = p.stdout.read(hop_bytes)
+        if raw is None or len(raw) < hop_bytes:
+            # мало байт — подождём ещё
             continue
 
         # unpack int16 little-endian
