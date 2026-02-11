@@ -120,6 +120,13 @@ def main():
 
     last_log_ts = 0.0          # когда последний раз печатали таблицу
 
+    prev_pub_avg5 = 0
+    prev_pub_max5 = 0
+    prev_pub_avg1m = 0
+    prev_pub_avg1h = 0
+    prev_pub_presence = 0
+    prev_pub_total = 0
+
     while True:
         # ждём данные максимум 2 секунды
         rlist, _, _ = select.select([p.stdout], [], [], 2.0)
@@ -265,18 +272,29 @@ def main():
             last_log_ts = now
             presence_str = "true" if presence else "false"
 
+            d_avg5 = i_pub_avg5 - prev_pub_avg5
+            d_max5 = i_pub_max5 - prev_pub_max5
+            d_avg1m = i_pub_avg1m - prev_pub_avg1m
+            d_avg1h = i_pub_avg1h - prev_pub_avg1h
+            d_presence = i_pub_presence - prev_pub_presence
+
+            # обновляем baseline для следующей минуты
+            prev_pub_avg5 = i_pub_avg5
+            prev_pub_max5 = i_pub_max5
+            prev_pub_avg1m = i_pub_avg1m
+            prev_pub_avg1h = i_pub_avg1h
+            prev_pub_presence = i_pub_presence
+            prev_pub_total = i_cycle_total
+
             log(
                 "\n"
-                "+-------------------------------+------------+\n"
-                "| metric            value       | published  |\n"
-                "+-------------------------------+------------+\n"
-                f"| db (current)   {db:8.2f} dB | {i_cycle_total:10d} |\n"
-                f"| avg5           {avg5:8.2f} dB | {i_pub_avg5:10d} |\n"
-                f"| max5           {max5:8.2f} dB | {i_pub_max5:10d} |\n"
-                f"| avg1m          {avg1m:8.2f} dB | {i_pub_avg1m:10d} |\n"
-                f"| avg1h          {avg1h:8.2f} dB | {i_pub_avg1h:10d} |\n"
-                f"| presence       {presence_str:>8} | {i_pub_presence:10d} |\n"
-                "+-------------------------------+------------+"
+                f"{'    metric':<20} {'value':>12}   {'pub_total':>10}   {'pub_1m':>7}\n"
+                f"{'    db (current)':<20} {db:8.2f} dB   {i_cycle_total:10d}   {d_total:7d}\n"
+                f"{'    avg5':<20} {avg5:8.2f} dB   {i_pub_avg5:10d}   {d_avg5:7d}\n"
+                f"{'    max5':<20} {max5:8.2f} dB   {i_pub_max5:10d}   {d_max5:7d}\n"
+                f"{'    avg1m':<20} {avg1m:8.2f} dB   {i_pub_avg1m:10d}   {d_avg1m:7d}\n"
+                f"{'    avg1h':<20} {avg1h:8.2f} dB   {i_pub_avg1h:10d}   {d_avg1h:7d}\n"
+                f"{'    presence':<20} {presence_str:>12}   {i_pub_presence:10d}   {d_presence:7d}\n"
             )
 
 if __name__ == "__main__":
