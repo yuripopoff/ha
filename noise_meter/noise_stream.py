@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # noise_stream.py - reads audio from ALSA device using sox, calculates noise level in dBFS and presence, and publishes to MQTT.
 
-import argparse, math, struct, time, subprocess, collections, select, os
+import argparse, math, struct, time, subprocess, collections, select, os, threading
 
 def log(msg: str):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -9,13 +9,29 @@ def log(msg: str):
 
 log("PY module loaded.")
 
+def pump_stderr(proc):
+    try:
+        for line in iter(proc.stderr.readline, b""):
+            txt = line.decode("utf-8", "ignore").rstrip()
+            if txt:
+                log(f"[sox:{proc.pid}] {txt}")
+    except Exception as e:
+        log(f"[sox:{proc.pid}] pump_stderr() failed: {e}")
+    finally:
+        log(f"[sox:{proc.pid}] stderr stream closed")
+
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
     if user:
         cmd += ["-u", user, "-P", pw]
-
-    # timeout чтобы не зависнуть на DNS/сети/брокере
-    r = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=3)
+    try:
+        r = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=3)
+    except subprocess.TimeoutExpired:
+        log(f"mosquitto_pub TIMEOUT topic={topic}")
+        return
+    except Exception as e:
+        log(f"mosquitto_pub ERROR topic={topic} err={e}")
+        return
 
     if r.returncode != 0:
         log(f"mosquitto_pub failed rc={r.returncode} topic={topic} stderr={r.stderr.strip()}")
@@ -41,8 +57,48 @@ def start_sox(cmd):
         stderr=subprocess.PIPE,
         bufsize=0
     )
+
+    t = threading.Thread(target=pump_stderr, args=(proc,), daemon=True)
+    t.start()
+
     log(f"PY: sox started, pid={proc.pid}")
     return proc
+
+def restart_sox(p, cmd, buf, reason):
+    log(f"PY: restarting sox ({reason}) pid={getattr(p, 'pid', None)}")
+
+    # best-effort terminate -> wait -> kill -> wait
+    try:
+        p.terminate()
+    except Exception as e:
+        log(f"p.terminate() failed: {e}")
+
+    try:
+        p.wait(timeout=1)
+    except Exception as e:
+        log(f"p.wait() after terminate failed: {e}")
+        try:
+            p.kill()
+        except Exception as e2:
+            log(f"p.kill() failed: {e2}")
+        try:
+            p.wait(timeout=1)
+        except Exception as e2:
+            log(f"p.wait() after kill failed: {e2}")
+
+    # close pipes
+    try:
+        if p.stdout:
+            p.stdout.close()
+    except Exception as e:
+        log(f"p.stdout.close() failed: {e}")
+
+    time.sleep(0.2)
+    p2 = start_sox(cmd)
+    os.set_blocking(p2.stdout.fileno(), False)
+
+    buf.clear()
+    return p2
 
 def q01(x: float) -> float:
     # quantize to 0.1 dB
@@ -63,11 +119,6 @@ def main():
     ap.add_argument("--mqtt-user", default="")
     ap.add_argument("--mqtt-pass", default="")
     ap.add_argument("--mqtt-prefix", required=True)
-
-    ap.add_argument("--avg1m-delta", type=float, default=0.5)
-    ap.add_argument("--avg1h-delta", type=float, default=1.0)
-    ap.add_argument("--avg1m-force-every", type=float, default=60.0)
-    ap.add_argument("--avg1h-force-every", type=float, default=300.0)
 
     args = ap.parse_args()
 
@@ -138,12 +189,7 @@ def main():
             # если sox реально умер — рестартим
             rc = p.poll()
             if rc is not None:
-                err = (p.stderr.read() or b"").decode("utf-8", "ignore")
-                log(f"sox exited rc={rc}. stderr:\n{err}")
-                time.sleep(0.2)
-                p = start_sox(cmd)
-                os.set_blocking(p.stdout.fileno(), False)
-                buf.clear()
+                p = restart_sox(p, cmd, buf, reason=f"sox exited rc={rc}")
                 last_rx = time.time()
                 last_buf_len = 0
                 stall_start = None
@@ -169,15 +215,7 @@ def main():
 
                 # рестарт только если реально давно нет байтов
                 if now - last_rx >= 30.0:  # 30s — рестарт
-                    log("PY: restarting sox due to stalled stream (no new bytes 30s)")
-                    try:
-                        p.kill()
-                    except Exception:
-                        pass
-                    time.sleep(0.2)
-                    p = start_sox(cmd)
-                    os.set_blocking(p.stdout.fileno(), False)
-                    buf.clear()
+                    p = restart_sox(p, cmd, buf, reason="stalled stream (no new bytes 30s)")
                     last_rx = time.time()
                     last_buf_len = 0
                     stall_start = None
@@ -186,17 +224,30 @@ def main():
 
         # читаем всё, что доступно (stdout non-blocking)
         got = False
+        saw_eof = False
         while True:
             try:
                 chunk = p.stdout.read(4096)
             except BlockingIOError:
                 break
-            if not chunk:
+            if chunk is None:
+                break
+            if chunk == b"":
+                saw_eof = True
                 break
             got = True
             buf.extend(chunk)
 
         if not got:
+            if saw_eof:
+                rc = p.poll()
+                p = restart_sox(p, cmd, buf, reason=f"stdout EOF (rc={rc})")
+                last_rx = time.time()
+                last_buf_len = 0
+                stall_start = None
+                continue
+
+            # если не EOF — просто не было данных, ждём следующего select()
             continue
 
         last_rx = time.time()
