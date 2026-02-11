@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # noise_stream.py - reads audio from ALSA device using sox, calculates noise level in dBFS and presence, and publishes to MQTT.
 
-import argparse, math, struct, time, subprocess, collections, select
+import argparse, math, struct, time, subprocess, collections, select, os
 
 def log(msg: str):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -85,6 +85,8 @@ def main():
 
     p = start_sox(cmd)
 
+    os.set_blocking(p.stdout.fileno(), False)
+
     hop_samples = int(args.rate * args.hop)
     hop_bytes = hop_samples * 2  # int16
 
@@ -127,6 +129,8 @@ def main():
     prev_pub_presence = 0
     prev_pub_total = 0
 
+    last_stall_log_ts = 0.0
+
     while True:
         # ждём данные максимум 2 секунды
         rlist, _, _ = select.select([p.stdout], [], [], 2.0)
@@ -158,7 +162,8 @@ def main():
 
                 # логируем редко, раз в 10 сек
                 # (можно оставить как есть или убрать)
-                if int(now) % 10 == 0:
+                if now - last_stall_log_ts >= 10.0:
+                    last_stall_log_ts = now
                     log(f"PY: no new audio bytes for {now - last_rx:.0f}s (buf={len(buf)} of {hop_bytes})")
 
                 # рестарт только если реально давно нет байтов
@@ -178,7 +183,21 @@ def main():
             continue
 
         # читаем сколько есть (не пытаемся сразу hop_bytes)
-        chunk = p.stdout.read(4096)
+
+        got = False
+        while True:
+            try:
+                chunk = p.stdout.read(4096)
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            got = True
+            buf.extend(chunk)
+
+        if got:
+            last_rx = time.time()
+
         if not chunk:
             continue
 
