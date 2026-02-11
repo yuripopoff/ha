@@ -142,6 +142,7 @@ def main():
                 log(f"sox exited rc={rc}. stderr:\n{err}")
                 time.sleep(0.2)
                 p = start_sox(cmd)
+                os.set_blocking(p.stdout.fileno(), False)
                 buf.clear()
                 last_rx = time.time()
                 last_buf_len = 0
@@ -175,6 +176,7 @@ def main():
                         pass
                     time.sleep(0.2)
                     p = start_sox(cmd)
+                    os.set_blocking(p.stdout.fileno(), False)
                     buf.clear()
                     last_rx = time.time()
                     last_buf_len = 0
@@ -182,8 +184,7 @@ def main():
 
             continue
 
-        # читаем сколько есть (не пытаемся сразу hop_bytes)
-
+        # читаем всё, что доступно (stdout non-blocking)
         got = False
         while True:
             try:
@@ -195,15 +196,10 @@ def main():
             got = True
             buf.extend(chunk)
 
-        if got:
-            last_rx = time.time()
-
-        if not chunk:
+        if not got:
             continue
 
         last_rx = time.time()
-
-        buf.extend(chunk)
 
         # если буфер растёт — сбрасываем стагнацию
         if len(buf) != last_buf_len:
@@ -296,6 +292,7 @@ def main():
             d_avg1m = i_pub_avg1m - prev_pub_avg1m
             d_avg1h = i_pub_avg1h - prev_pub_avg1h
             d_presence = i_pub_presence - prev_pub_presence
+            d_total= i_cycle_total - prev_pub_total
 
             # обновляем baseline для следующей минуты
             prev_pub_avg5 = i_pub_avg5
