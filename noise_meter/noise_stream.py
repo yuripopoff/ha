@@ -84,42 +84,58 @@ def main():
     buf = bytearray()
     stall_seconds = 0.0
     last_stall_log = 0.0
+    last_rx = time.time()       # когда пришли последние байты
+    last_buf_len = 0            # чтобы видеть, растёт ли буфер
+    stall_start = None          # когда реально началась стагнация
+
 
     while True:
         # ждём данные максимум 2 секунды
         rlist, _, _ = select.select([p.stdout], [], [], 2.0)
         if not rlist:
+            # если sox реально умер — рестартим
             rc = p.poll()
             if rc is not None:
                 err = (p.stderr.read() or b"").decode("utf-8", "ignore")
                 print(f"sox exited rc={rc}. stderr:\n{err}", flush=True)
-
-                # пробуем рестарт вместо падения
                 time.sleep(0.2)
                 p = start_sox(cmd)
                 buf.clear()
-                stall_seconds = 0.0
+                last_rx = time.time()
+                last_buf_len = 0
+                stall_start = None
                 continue
 
-            # sox жив, но данных нет
-            stall_seconds += 2.0
-
             now = time.time()
-            if now - last_stall_log > 10:
-                print(f"PY: sox alive but no audio bytes for 2s (buf={len(buf)} bytes)", flush=True)
-                last_stall_log = now
 
-            # рестарт после 15 секунд тишины
-            if stall_seconds >= 15.0:
-                print("PY: restarting sox due to stalled stream", flush=True)
-                try:
-                    p.kill()
-                except Exception:
-                    pass
-                time.sleep(0.2)
-                p = start_sox(cmd)
-                buf.clear()
-                stall_seconds = 0.0
+            # Если буфер уже почти собрался — не считаем это проблемой, просто ждём.
+            # (например, >= 80% окна)
+            if len(buf) >= int(hop_bytes * 0.8):
+                continue
+
+            # Если давно не было НОВЫХ байтов — считаем стагнацией
+            if now - last_rx >= 10.0:  # тут 10s — “подозрительно”, но ещё не рестарт
+                if stall_start is None:
+                    stall_start = now
+
+                # логируем редко, раз в 10 сек
+                # (можно оставить как есть или убрать)
+                if int(now) % 10 == 0:
+                    print(f"PY: no new audio bytes for {now - last_rx:.0f}s (buf={len(buf)} of {hop_bytes})", flush=True)
+
+                # рестарт только если реально давно нет байтов
+                if now - last_rx >= 30.0:  # 30s — рестарт
+                    print("PY: restarting sox due to stalled stream (no new bytes 30s)", flush=True)
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+                    time.sleep(0.2)
+                    p = start_sox(cmd)
+                    buf.clear()
+                    last_rx = time.time()
+                    last_buf_len = 0
+                    stall_start = None
 
             continue
 
@@ -129,8 +145,14 @@ def main():
             continue
 
         last_stall_log=time.time()
+        last_rx = time.time()
 
         buf.extend(chunk)
+
+        # если буфер растёт — сбрасываем стагнацию
+        if len(buf) != last_buf_len:
+            last_buf_len = len(buf)
+            stall_start = None
 
         if len(buf) < hop_bytes:
             # ещё не набрали окно
