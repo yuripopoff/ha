@@ -3,7 +3,9 @@
 
 import argparse, math, struct, time, subprocess, collections, select
 
-print("PY: module loaded, V 2026-02-10 19:24", flush=True)
+def log(msg: str):
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    log(f"{ts}: {msg}")
 
 def mosquitto_pub(host, port, user, pw, topic, payload):
     cmd = ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", str(payload), "-r"]
@@ -14,7 +16,7 @@ def mosquitto_pub(host, port, user, pw, topic, payload):
     r = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=3)
 
     if r.returncode != 0:
-        print(f"mosquitto_pub failed rc={r.returncode} topic={topic} stderr={r.stderr.strip()}", flush=True)
+        log(f"mosquitto_pub failed rc={r.returncode} topic={topic} stderr={r.stderr.strip()}")
 
 def rms_dbfs(samples):
     # samples: list[int16]
@@ -30,15 +32,19 @@ def rms_dbfs(samples):
     return 20.0 * math.log10(rms / 32768.0)
 
 def start_sox(cmd):
-    print("PY: starting sox:", cmd, flush=True)
+    log("PY: starting sox:", cmd)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=0
     )
-    print("PY: sox started, pid=", proc.pid, flush=True)
+    log("PY: sox started, pid=", proc.pid)
     return proc
+
+def q01(x: float) -> float:
+    # quantize to 0.1 dB
+    return round(x, 1)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -55,6 +61,12 @@ def main():
     ap.add_argument("--mqtt-user", default="")
     ap.add_argument("--mqtt-pass", default="")
     ap.add_argument("--mqtt-prefix", required=True)
+
+    ap.add_argument("--avg1m-delta", type=float, default=0.5)
+    ap.add_argument("--avg1h-delta", type=float, default=1.0)
+    ap.add_argument("--avg1m-force-every", type=float, default=60.0)
+    ap.add_argument("--avg1h-force-every", type=float, default=300.0)
+
     args = ap.parse_args()
 
     # sox -> raw PCM stream (int16, mono)
@@ -85,13 +97,26 @@ def main():
     hour_buf = collections.deque()
 
     presence = 0
-    tick = 0
     buf = bytearray()
     stall_seconds = 0.0
     last_rx = time.time()       # когда пришли последние байты
     last_buf_len = 0            # чтобы видеть, растёт ли буфер
     stall_start = None          # когда реально началась стагнация
 
+    last_pub_avg5 = None
+    last_pub_max5 = None
+    last_pub_avg1m = None
+    last_pub_avg1h = None
+    last_pub_presence = None
+
+    i_pub_total=0
+    i_pub_avg5 = 0
+    i_pub_max5 = 0
+    i_pub_avg1m = 0
+    i_pub_avg1h = 0
+    i_pub_presence = 0
+
+    last_log_ts = 0.0          # когда последний раз печатали таблицу
 
     while True:
         # ждём данные максимум 2 секунды
@@ -101,7 +126,7 @@ def main():
             rc = p.poll()
             if rc is not None:
                 err = (p.stderr.read() or b"").decode("utf-8", "ignore")
-                print(f"sox exited rc={rc}. stderr:\n{err}", flush=True)
+                log(f"sox exited rc={rc}. stderr:\n{err}")
                 time.sleep(0.2)
                 p = start_sox(cmd)
                 buf.clear()
@@ -125,11 +150,11 @@ def main():
                 # логируем редко, раз в 10 сек
                 # (можно оставить как есть или убрать)
                 if int(now) % 10 == 0:
-                    print(f"PY: no new audio bytes for {now - last_rx:.0f}s (buf={len(buf)} of {hop_bytes})", flush=True)
+                    log(f"PY: no new audio bytes for {now - last_rx:.0f}s (buf={len(buf)} of {hop_bytes})")
 
                 # рестарт только если реально давно нет байтов
                 if now - last_rx >= 30.0:  # 30s — рестарт
-                    print("PY: restarting sox due to stalled stream (no new bytes 30s)", flush=True)
+                    log("PY: restarting sox due to stalled stream (no new bytes 30s)")
                     try:
                         p.kill()
                     except Exception:
@@ -185,31 +210,74 @@ def main():
         while len(hour_buf) > hour_keep:
             hour_buf.popleft()
 
-        avg5 = sum(noise_buf) / len(noise_buf)
-        max5 = max(noise_buf)
-        avg2 = sum(pres_buf) / len(pres_buf)
-        avg1m = sum(min_buf) / len(min_buf)
-        avg1h = sum(hour_buf) / len(hour_buf)
+        avg5 = q01(sum(noise_buf) / len(noise_buf))
+        max5 = q01(max(noise_buf))
+        avg2 = q01(sum(pres_buf) / len(pres_buf))
+        avg1m = q01(sum(min_buf) / len(min_buf))
+        avg1h = q01(sum(hour_buf) / len(hour_buf))
 
         if presence == 0 and avg2 > args.p_on:
             presence = 1
         elif presence == 1 and avg2 < args.p_off:
             presence = 0
 
-        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                      f"{args.mqtt_prefix}/avg_db", f"{avg5:.2f}")
-        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                      f"{args.mqtt_prefix}/max_db", f"{max5:.2f}")
-        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                      f"{args.mqtt_prefix}/avg_1m_db", f"{avg1m:.2f}")
-        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                      f"{args.mqtt_prefix}/avg_1h_db", f"{avg1h:.2f}")
-        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
-                      f"{args.mqtt_prefix}/presence", str(presence))
+        i_pub_total += 1
 
-        tick += 1
-        if tick % 16 == 0:
-            print(f"audio ok: db={db:.2f} avg2={avg2:.2f} avg5={avg5:.2f} presence={presence}", flush=True)
+        # avg 5s
+        if last_pub_avg5 is None or avg5q != last_pub_avg5:
+            mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                          f"{args.mqtt_prefix}/avg_db", f"{avg5q:.1f}")
+            last_pub_avg5 = avg5q
+            i_pub_avg5+=1
+
+        # max 5s
+        if last_pub_max5 is None or max5q != last_pub_max5:
+            mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                          f"{args.mqtt_prefix}/max_db", f"{max5q:.1f}")
+            last_pub_max5 = max5q
+            i_pub_max5+=1
+
+        # avg 1m
+        if last_pub_avg1m is None or avg1mq != last_pub_avg1m:
+            mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                          f"{args.mqtt_prefix}/avg_1m_db", f"{avg1mq:.1f}")
+            last_pub_avg1m = avg1mq
+            i_pub_avg1m+=1
+
+        # avg 1h
+        if last_pub_avg1h is None or avg1hq != last_pub_avg1h:
+            mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                          f"{args.mqtt_prefix}/avg_1h_db", f"{avg1hq:.1f}")
+            last_pub_avg1h = avg1hq
+            i_pub_avg1h+=1
+
+        # presence (не квантовать)
+        if last_pub_presence is None or presence != last_pub_presence:
+            mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                          f"{args.mqtt_prefix}/presence", str(presence))
+            last_pub_presence = presence
+            i_pub_presence+=1
+
+        now = time.time()
+        if now - last_log_ts >= 60:
+            last_log_ts = now
+            presence_str = "true" if presence else "false"
+
+            log(
+                "\n"
+                "+-------------------------------+------------+\n"
+                "| metric            value       | published  |\n"
+                "+-------------------------------+------------+\n"
+                f"| db (current)   {db:8.2f} dB | {i_pub_total:10d} |\n"
+                f"| avg5           {avg5:8.2f} dB | {i_pub_avg5:10d} |\n"
+                f"| max5           {max5:8.2f} dB | {i_pub_max5:10d} |\n"
+                f"| avg1m          {avg1m:8.2f} dB | {i_pub_avg1m:10d} |\n"
+                f"| avg1h          {avg1h:8.2f} dB | {i_pub_avg1h:10d} |\n"
+                f"| presence       {presence_str:>8} | {i_pub_presence:10d} |\n"
+                "+-------------------------------+------------+"
+            )
+
+log("PY module loaded.")
 
 if __name__ == "__main__":
     main()
