@@ -355,13 +355,13 @@ def main():
 
             log(
                 "\n"
-                f"{'    metric':<20} {'value':>12}   {'pub_total':>10}   {'pub_1m':>7}\n"
-                f"{'    db (current)':<20} {db:8.2f} dB   {i_cycle_total:10d}   {d_total:7d}\n"
-                f"{'    avg5':<20} {avg5:8.2f} dB   {i_pub_avg5:10d}   {d_avg5:7d}\n"
-                f"{'    max5':<20} {max5:8.2f} dB   {i_pub_max5:10d}   {d_max5:7d}\n"
-                f"{'    avg1m':<20} {avg1m:8.2f} dB   {i_pub_avg1m:10d}   {d_avg1m:7d}\n"
-                f"{'    avg1h':<20} {avg1h:8.2f} dB   {i_pub_avg1h:10d}   {d_avg1h:7d}\n"
-                f"{'    presence':<20} {presence_str:>12}   {i_pub_presence:10d}   {d_presence:7d}\n"
+                f"{'    metric':<20} {'value':>10}   {'pub_total':>10}   {'pub_1m':>7}\n"
+                f"{'    db (current)':<20} {db:8.1f} dB   {i_cycle_total:10d}   {d_total:7d}\n"
+                f"{'    avg5':<20} {avg5:8.1f} dB   {i_pub_avg5:10d}   {d_avg5:7d}\n"
+                f"{'    max5':<20} {max5:8.1f} dB   {i_pub_max5:10d}   {d_max5:7d}\n"
+                f"{'    avg1m':<20} {avg1m:8.1f} dB   {i_pub_avg1m:10d}   {d_avg1m:7d}\n"
+                f"{'    avg1h':<20} {avg1h:8.1f} dB   {i_pub_avg1h:10d}   {d_avg1h:7d}\n"
+                f"{'    presence':<20} {presence_str:>10}   {i_pub_presence:10d}   {d_presence:7d}\n"
             )
 
 if __name__ == "__main__":
