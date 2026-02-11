@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# publish_discovery.sh: publish MQTT Discovery config for Home Assistant
 set -euo pipefail
 
 MQTT_HOST=$(jq -r '.mqtt_host' /data/options.json)
@@ -37,6 +38,40 @@ pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/max_db/config" "$(jq -nc \
   --arg name "Noise level (max)" \
   --arg uid "${DEVICE_ID}_max" \
   --arg topic "$MQTT_PREFIX/max_db" \
+  --arg dev "$DEVICE_ID" \
+  --arg dname "$DEVICE_NAME" \
+  '{
+    name: $name,
+    unique_id: $uid,
+    state_topic: $topic,
+    unit_of_measurement: "dB",
+    device_class: "sound_pressure",
+    device: { identifiers: [$dev], name: $dname }
+  }'
+)"
+
+# avg noise sensor (1 minute)
+pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/avg_1m_db/config" "$(jq -nc \
+  --arg name "Noise level (avg 1m)" \
+  --arg uid "${DEVICE_ID}_avg_1m" \
+  --arg topic "$MQTT_PREFIX/avg_1m_db" \
+  --arg dev "$DEVICE_ID" \
+  --arg dname "$DEVICE_NAME" \
+  '{
+    name: $name,
+    unique_id: $uid,
+    state_topic: $topic,
+    unit_of_measurement: "dB",
+    device_class: "sound_pressure",
+    device: { identifiers: [$dev], name: $dname }
+  }'
+)"
+
+# avg noise sensor (1 hour)
+pub "$DISCOVERY_PREFIX/sensor/$DEVICE_ID/avg_1h_db/config" "$(jq -nc \
+  --arg name "Noise level (avg 1h)" \
+  --arg uid "${DEVICE_ID}_avg_1h" \
+  --arg topic "$MQTT_PREFIX/avg_1h_db" \
   --arg dev "$DEVICE_ID" \
   --arg dname "$DEVICE_NAME" \
   '{

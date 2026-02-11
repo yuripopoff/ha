@@ -79,11 +79,15 @@ def main():
     noise_keep = max(1, int(args.noise_window / args.hop))
     pres_keep = max(1, int(args.presence_window / args.hop))
 
+    min_keep = max(1, int(60.0 / args.hop))      # 1 minute window
+    hour_keep = max(1, int(3600.0 / args.hop))   # 1 hour window
+    min_buf = collections.deque()
+    hour_buf = collections.deque()
+
     presence = 0
     tick = 0
     buf = bytearray()
     stall_seconds = 0.0
-    last_stall_log = 0.0
     last_rx = time.time()       # когда пришли последние байты
     last_buf_len = 0            # чтобы видеть, растёт ли буфер
     stall_start = None          # когда реально началась стагнация
@@ -144,7 +148,6 @@ def main():
         if not chunk:
             continue
 
-        last_stall_log=time.time()
         last_rx = time.time()
 
         buf.extend(chunk)
@@ -174,9 +177,19 @@ def main():
         while len(pres_buf) > pres_keep:
             pres_buf.popleft()
 
+        min_buf.append(db)
+        hour_buf.append(db)
+
+        while len(min_buf) > min_keep:
+            min_buf.popleft()
+        while len(hour_buf) > hour_keep:
+            hour_buf.popleft()
+
         avg5 = sum(noise_buf) / len(noise_buf)
         max5 = max(noise_buf)
         avg2 = sum(pres_buf) / len(pres_buf)
+        avg1m = sum(min_buf) / len(min_buf)
+        avg1h = sum(hour_buf) / len(hour_buf)
 
         if presence == 0 and avg2 > args.p_on:
             presence = 1
@@ -188,10 +201,14 @@ def main():
         mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
                       f"{args.mqtt_prefix}/max_db", f"{max5:.2f}")
         mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                      f"{args.mqtt_prefix}/avg_1m_db", f"{avg1m:.2f}")
+        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
+                      f"{args.mqtt_prefix}/avg_1h_db", f"{avg1h:.2f}")
+        mosquitto_pub(args.mqtt_host, args.mqtt_port, args.mqtt_user, args.mqtt_pass,
                       f"{args.mqtt_prefix}/presence", str(presence))
 
         tick += 1
-        if tick % 10 == 0:
+        if tick % 16 == 0:
             print(f"audio ok: db={db:.2f} avg2={avg2:.2f} avg5={avg5:.2f} presence={presence}", flush=True)
 
 if __name__ == "__main__":
